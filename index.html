@@ -5,10 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sistema de Captura de Productos</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <style>
     :root { --bg-profundo: #0f172a; --bg-tarjeta: #1e293b; --bordes: #334155; --texto-claro: #f8fafc; --texto-muted: #94a3b8; --acento-azul: #38bdf8; }
     body { background-color: var(--bg-profundo); color: var(--texto-claro); padding-top: 30px; padding-bottom: 50px; }
-    .container { max-width: 75%; background-color: var(--bg-tarjeta); padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid var(--bordes); margin: 0 auto; }
+    .container { max-width: 95%; background-color: var(--bg-tarjeta); padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid var(--bordes); margin: 0 auto; }
     h2 { color: var(--texto-claro); font-weight: 600; }
     .nav-tabs { border-bottom: 1px solid var(--bordes); margin-bottom: 20px; }
     .nav-tabs .nav-link { color: var(--texto-muted); font-weight: 500; border: none; border-bottom: 2px solid transparent; }
@@ -36,7 +37,7 @@
   
   <div class="tab-content">
     <div class="tab-pane fade show active" id="excel" role="tabpanel">
-      <button type="button" class="btn btn-outline-primary mb-4 w-100" onclick="descargarPlantilla()">⬇️ Descargar Plantilla (CSV)</button>
+      <button type="button" class="btn btn-outline-primary mb-4 w-100" onclick="descargarPlantillaXLSX()">⬇️ Descargar Plantilla (.xlsx)</button>
       <form id="formExcel" onsubmit="enviarExcel(event)">
         <div class="row mb-4">
           <div class="col-md-6"><label class="form-label fw-bold">Responsable Chedraui:</label><input type="text" id="responsableCH" class="form-control" required></div>
@@ -47,8 +48,8 @@
           <label class="form-label text-muted">Opción 1: Pega las filas desde tu Excel</label>
           <textarea id="textoPegado" class="form-control mb-3" rows="4"></textarea>
           <div class="text-center text-muted fw-bold mb-3">- O -</div>
-          <label class="form-label text-muted">Opción 2: Sube el archivo CSV</label>
-          <input type="file" id="archivoCSV" class="form-control" accept=".csv">
+          <label class="form-label text-muted">Opción 2: Sube el archivo Excel lleno (.xlsx)</label>
+          <input type="file" id="archivoExcel" class="form-control" accept=".xlsx, .xls, .csv">
         </div>
         <div class="mb-4">
           <label class="form-label fw-bold" style="color: #f87171;">📸 Evidencia de entrega (Obligatorio):</label>
@@ -67,7 +68,7 @@
           <div class="col-md-2 d-flex align-items-end"><button type="submit" class="btn btn-primary w-100" style="background-color: var(--acento-azul); color: #000; border: none;">Buscar</button></div>
         </div>
       </form>
-      <div class="d-flex justify-content-end mb-2"><button type="button" class="btn btn-outline-info btn-sm" id="btnDescargarConsulta" onclick="descargarConsultaCSV()" style="display: none;">⬇️ Descargar Resultados</button></div>
+      <div class="d-flex justify-content-end mb-2"><button type="button" class="btn btn-outline-info btn-sm" id="btnDescargarConsulta" onclick="descargarConsultaXLSX()" style="display: none;">⬇️ Descargar Resultados (.xlsx)</button></div>
       <div class="table-responsive">
         <table class="table table-striped table-bordered table-sm text-center align-middle">
           <thead class="table-dark">
@@ -103,24 +104,43 @@
     var responsable = document.getElementById("responsableCH").value;
     var recibe = document.getElementById("recibeProducto").value;
     var textoPaste = document.getElementById("textoPegado").value;
-    var archivoCSV = document.getElementById("archivoCSV").files[0];
+    var archivoSubido = document.getElementById("archivoExcel").files[0];
     var archivoEvidencia = document.getElementById("imagenEvidencia").files[0];
     
-    if (!textoPaste.trim() && !archivoCSV) { mostrarAlerta("Por favor, pega los datos o sube el archivo CSV.", true); btn.disabled = false; return; }
+    if (!textoPaste.trim() && !archivoSubido) { mostrarAlerta("Por favor, pega los datos o sube el archivo Excel de la plantilla.", true); btn.disabled = false; return; }
     if (!archivoEvidencia) { mostrarAlerta("Adjunta una foto de evidencia. Es obligatorio.", true); btn.disabled = false; return; }
     
     mostrarAlerta("Procesando datos hacia Google...", false);
     
-    if (archivoCSV) {
-      var readerCSV = new FileReader();
-      readerCSV.onload = function(eventoCSV) {
-        var lineas = eventoCSV.target.result.replace(/\r/g, '').split('\n');
-        if (lineas.length > 0 && lineas[0].toLowerCase().includes("tienda")) lineas.shift();
-        var textoConvertido = lineas.map(linea => linea.split(';').join('\t')).join('\n');
+    // Si subió un archivo Excel (.xlsx o .xls) usamos SheetJS para leerlo
+    if (archivoSubido) {
+      var readerExcel = new FileReader();
+      readerExcel.onload = function(e) {
+        var data = new Uint8Array(e.target.result);
+        var workbook = XLSX.read(data, {type: 'array'});
+        var primeraHoja = workbook.Sheets[workbook.SheetNames[0]];
+        
+        // Convertimos la hoja a una matriz bidimensional (Array de Arrays)
+        var matrizDatos = XLSX.utils.sheet_to_json(primeraHoja, {header: 1});
+        
+        // Limpiamos líneas vacías al final
+        while (matrizDatos.length > 0 && matrizDatos[matrizDatos.length - 1].length === 0) {
+          matrizDatos.pop();
+        }
+
+        // Si la primera fila tiene los encabezados de la plantilla, la omitimos
+        if (matrizDatos.length > 0 && matrizDatos[0][0] && matrizDatos[0][0].toString().toLowerCase().includes("tienda")) {
+          matrizDatos.shift(); 
+        }
+        
+        // Convertimos la matriz a texto separado por tabulaciones (como si lo hubieran pegado)
+        var textoConvertido = matrizDatos.map(fila => fila.join('\t')).join('\n');
+        
         procesarImagenYEnviar(textoConvertido, archivoEvidencia, responsable, recibe);
       };
-      readerCSV.readAsText(archivoCSV, 'UTF-8');
+      readerExcel.readAsArrayBuffer(archivoSubido);
     } else {
+      // Si usaron la opción de pegar
       procesarImagenYEnviar(textoPaste, archivoEvidencia, responsable, recibe);
     }
   }
@@ -154,11 +174,10 @@
     hacerPeticionGoogle(payload, mostrarResultados);
   }
 
-  // --- EL NUEVO MOTOR DE CONEXIÓN CON GOOGLE ---
   function hacerPeticionGoogle(payload, callbackExito, botonActivar = null) {
     fetch(APPS_SCRIPT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Truco para evitar bloqueo CORS
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload)
     })
     .then(response => response.json())
@@ -208,22 +227,41 @@
     });
   }
 
-  function descargarPlantilla() {
-    var link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob(["\uFEFFTienda;Código Tienda;Núm. Albarán;SKU;EAN;Nombre del Producto;Cantidad\n"], { type: 'text/csv;charset=utf-8;' }));
-    link.download = "Plantilla_Captura_Productos.csv";
-    link.click();
+  // --- NUEVA LÓGICA DE EXCEL NATIVO CON SHEETJS ---
+
+  function descargarPlantillaXLSX() {
+    // 1. Crear el arreglo de datos (solo los encabezados)
+    var datosPlantilla = [
+      ["Tienda", "Código Tienda", "Núm. Albarán", "SKU", "EAN", "Nombre del Producto", "Cantidad"]
+    ];
+    // 2. Convertirlo a una hoja
+    var hoja = XLSX.utils.aoa_to_sheet(datosPlantilla);
+    // 3. Crear el libro y agregar la hoja
+    var libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, "Plantilla_Sobrantes");
+    // 4. Descargar el archivo
+    XLSX.writeFile(libro, "Plantilla_Captura_Productos.xlsx");
   }
 
-  function descargarConsultaCSV() {
-    var csvContent = "\uFEFFFecha y Hora;Responsable CH;Recibe;Tienda;Código Tienda;Núm. Albarán;SKU;EAN;Nombre del Producto;Cantidad;Evidencia;Cargado\n";
-    ultimosResultados.forEach(fila => {
-      csvContent += fila.map(dato => (dato || "").toString().replace(/;/g, ",").replace(/\n/g, " ")).join(";") + "\n";
-    });
-    var link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
-    link.download = "Consulta_Sobrantes_" + new Date().toISOString().slice(0, 10) + ".csv";
-    link.click();
+  function descargarConsultaXLSX() {
+    if (ultimosResultados.length === 0) return;
+    
+    // Encabezados de los resultados
+    var datosExcel = [
+      ["Fecha y Hora", "Responsable CH", "Recibe", "Tienda", "Código Tienda", "Núm. Albarán", "SKU", "EAN", "Nombre del Producto", "Cantidad", "Evidencia", "Cargado"]
+    ];
+    
+    // Añadimos las filas de los resultados
+    for (var i = 0; i < ultimosResultados.length; i++) {
+      datosExcel.push(ultimosResultados[i]);
+    }
+    
+    var hoja = XLSX.utils.aoa_to_sheet(datosExcel);
+    var libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, "Resultados");
+    
+    var fechaArchivo = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(libro, "Consulta_Sobrantes_" + fechaArchivo + ".xlsx");
   }
 </script>
 </body>
