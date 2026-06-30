@@ -9,10 +9,8 @@
   <style>
     :root { --bg-profundo: #0f172a; --bg-tarjeta: #1e293b; --bordes: #334155; --texto-claro: #f8fafc; --texto-muted: #94a3b8; --acento-azul: #38bdf8; }
     body { background-color: var(--bg-profundo); color: var(--texto-claro); padding-top: 30px; padding-bottom: 50px; }
-    
     .container { width: 70%; background-color: var(--bg-tarjeta); padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid var(--bordes); margin: 0 auto; }
     @media (max-width: 991px) { .container { width: 95%; } }
-
     h2 { color: var(--texto-claro); font-weight: 600; }
     .nav-tabs { border-bottom: 1px solid var(--bordes); margin-bottom: 20px; }
     .nav-tabs .nav-link { color: var(--texto-muted); font-weight: 500; border: none; border-bottom: 2px solid transparent; }
@@ -88,7 +86,7 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   // --------------------------------------------------------
-  // ¡PEGAR AQUÍ LA URL DE TU APLICACIÓN WEB DE GOOGLE!
+  // ¡PEGAR AQUÍ LA URL DE TU NUEVA APLICACIÓN WEB DE GOOGLE!
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw4g0x3uA2YJ0frjPL2JbXH32I90vgcE6JWlZEyoLHibnnb36UZ-j1VEHXoTK9fZZgf/exec"; 
   // --------------------------------------------------------
 
@@ -110,7 +108,7 @@
     var archivoSubido = document.getElementById("archivoExcel").files[0];
     var archivoEvidencia = document.getElementById("imagenEvidencia").files[0];
     
-    if (!textoPaste.trim() && !archivoSubido) { mostrarAlerta("Por favor, pega los datos o sube el archivo Excel de la plantilla.", true); btn.disabled = false; return; }
+    if (!textoPaste.trim() && !archivoSubido) { mostrarAlerta("Por favor, pega los datos o sube el archivo Excel.", true); btn.disabled = false; return; }
     if (!archivoEvidencia) { mostrarAlerta("Adjunta una foto de evidencia. Es obligatorio.", true); btn.disabled = false; return; }
     
     mostrarAlerta("Procesando datos hacia Google...", false);
@@ -123,12 +121,8 @@
         var primeraHoja = workbook.Sheets[workbook.SheetNames[0]];
         var matrizDatos = XLSX.utils.sheet_to_json(primeraHoja, {header: 1});
         
-        while (matrizDatos.length > 0 && matrizDatos[matrizDatos.length - 1].length === 0) {
-          matrizDatos.pop();
-        }
-        if (matrizDatos.length > 0 && matrizDatos[0][0] && matrizDatos[0][0].toString().toLowerCase().includes("tienda")) {
-          matrizDatos.shift(); 
-        }
+        while (matrizDatos.length > 0 && matrizDatos[matrizDatos.length - 1].length === 0) matrizDatos.pop();
+        if (matrizDatos.length > 0 && matrizDatos[0][0] && matrizDatos[0][0].toString().toLowerCase().includes("tienda")) matrizDatos.shift(); 
         
         var textoConvertido = matrizDatos.map(fila => fila.join('\t')).join('\n');
         procesarImagenYEnviar(textoConvertido, archivoEvidencia, responsable, recibe);
@@ -190,16 +184,49 @@
     });
   }
 
-  // FUNCIÓN PARA CONVERTIR URL DE GOOGLE DRIVE EN ENLACE DE DESCARGA DIRECTA
-  function obtenerUrlDescargaDirecta(url) {
-    // Busca el ID del archivo en la URL de Drive (lo que está entre /d/ y /view)
+  // --- LÓGICA DEL TÚNEL PARA DESCARGAR LA FOTO ---
+  function extraerIdDrive(url) {
     var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-    if (match && match[1]) {
-      var fileId = match[1];
-      // Crea el formato de descarga directa de Google
-      return "https://drive.google.com/uc?export=download&id=" + fileId;
-    }
-    return url; // Si falla, devuelve la original
+    if(match && match[1]) return match[1];
+    var matchId = url.match(/id=([a-zA-Z0-9_-]+)/);
+    if(matchId && matchId[1]) return matchId[1];
+    return null;
+  }
+
+  function descargarImagenInterna(fileId, btnRef) {
+    var textoOriginal = btnRef.innerHTML;
+    btnRef.innerHTML = "⏳ Cargando...";
+    btnRef.disabled = true;
+
+    var payload = { accion: "descargar_imagen", fileId: fileId };
+
+    fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(payload)
+    })
+    .then(response => response.json())
+    .then(data => {
+      btnRef.innerHTML = textoOriginal;
+      btnRef.disabled = false;
+      
+      if (data.status === "exito") {
+        var enlace = document.createElement("a");
+        // Convertimos el código seguro a una imagen descargable real
+        enlace.href = "data:" + data.mimeType + ";base64," + data.base64;
+        enlace.download = data.nombre;
+        document.body.appendChild(enlace);
+        enlace.click();
+        document.body.removeChild(enlace);
+      } else {
+        mostrarAlerta("Error al descargar la imagen.", true);
+      }
+    })
+    .catch(error => {
+      btnRef.innerHTML = textoOriginal;
+      btnRef.disabled = false;
+      mostrarAlerta("Fallo en la red al descargar.", true);
+    });
   }
 
   function mostrarResultados(resultados) {
@@ -221,14 +248,19 @@
         var td = document.createElement("td");
         
         if (j === 10) { 
-          // COLUMNA DE EVIDENCIA: AHORA DESCARGA DIRECTO
+          // EL BOTÓN DE DESCARGA INVOCA EL TÚNEL
           if (fila[j] && fila[j].toString().startsWith("http")) {
-            var urlDescarga = obtenerUrlDescargaDirecta(fila[j].toString());
-            td.innerHTML = `<a href="${urlDescarga}" class="btn btn-sm" style="background-color: var(--acento-azul); color: #000; font-weight: 600; text-decoration: none;">⬇️ Descargar</a>`;
+            var fileId = extraerIdDrive(fila[j].toString());
+            if(fileId) {
+              td.innerHTML = `<button onclick="descargarImagenInterna('${fileId}', this)" class="btn btn-sm" style="background-color: var(--acento-azul); color: #000; font-weight: 600; border: none;">⬇️ Descargar</button>`;
+            } else {
+              td.textContent = "-";
+            }
           } else {
             td.textContent = "-";
           }
-        } else if (j === 11) { 
+        } 
+        else if (j === 11) { 
           var estado = fila[j] ? fila[j].toString().trim().toUpperCase() : "";
           td.innerHTML = estado === "SI" ? `<span class="badge bg-success">SI</span>` : (estado === "NO" ? `<span class="badge bg-danger">NO</span>` : estado);
         } else {
@@ -251,15 +283,11 @@
   function descargarConsultaXLSX() {
     if (ultimosResultados.length === 0) return;
     var datosExcel = [ ["Fecha y Hora", "Responsable CH", "Recibe", "Tienda", "Código Tienda", "Núm. Albarán", "SKU", "EAN", "Nombre del Producto", "Cantidad", "Evidencia", "Cargado"] ];
-    
-    for (var i = 0; i < ultimosResultados.length; i++) {
-      datosExcel.push(ultimosResultados[i]);
-    }
+    for (var i = 0; i < ultimosResultados.length; i++) datosExcel.push(ultimosResultados[i]);
     var hoja = XLSX.utils.aoa_to_sheet(datosExcel);
     var libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, "Resultados");
-    var fechaArchivo = new Date().toISOString().slice(0, 10);
-    XLSX.writeFile(libro, "Consulta_Sobrantes_" + fechaArchivo + ".xlsx");
+    XLSX.writeFile(libro, "Consulta_Sobrantes_" + new Date().toISOString().slice(0, 10) + ".xlsx");
   }
 </script>
 </body>
