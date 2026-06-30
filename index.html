@@ -9,7 +9,10 @@
   <style>
     :root { --bg-profundo: #0f172a; --bg-tarjeta: #1e293b; --bordes: #334155; --texto-claro: #f8fafc; --texto-muted: #94a3b8; --acento-azul: #38bdf8; }
     body { background-color: var(--bg-profundo); color: var(--texto-claro); padding-top: 30px; padding-bottom: 50px; }
-    .container { max-width: 70%; background-color: var(--bg-tarjeta); padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid var(--bordes); margin: 0 auto; }
+    
+    .container { width: 70%; background-color: var(--bg-tarjeta); padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border: 1px solid var(--bordes); margin: 0 auto; }
+    @media (max-width: 991px) { .container { width: 95%; } }
+
     h2 { color: var(--texto-claro); font-weight: 600; }
     .nav-tabs { border-bottom: 1px solid var(--bordes); margin-bottom: 20px; }
     .nav-tabs .nav-link { color: var(--texto-muted); font-weight: 500; border: none; border-bottom: 2px solid transparent; }
@@ -112,35 +115,26 @@
     
     mostrarAlerta("Procesando datos hacia Google...", false);
     
-    // Si subió un archivo Excel (.xlsx o .xls) usamos SheetJS para leerlo
     if (archivoSubido) {
       var readerExcel = new FileReader();
       readerExcel.onload = function(e) {
         var data = new Uint8Array(e.target.result);
         var workbook = XLSX.read(data, {type: 'array'});
         var primeraHoja = workbook.Sheets[workbook.SheetNames[0]];
-        
-        // Convertimos la hoja a una matriz bidimensional (Array de Arrays)
         var matrizDatos = XLSX.utils.sheet_to_json(primeraHoja, {header: 1});
         
-        // Limpiamos líneas vacías al final
         while (matrizDatos.length > 0 && matrizDatos[matrizDatos.length - 1].length === 0) {
           matrizDatos.pop();
         }
-
-        // Si la primera fila tiene los encabezados de la plantilla, la omitimos
         if (matrizDatos.length > 0 && matrizDatos[0][0] && matrizDatos[0][0].toString().toLowerCase().includes("tienda")) {
           matrizDatos.shift(); 
         }
         
-        // Convertimos la matriz a texto separado por tabulaciones (como si lo hubieran pegado)
         var textoConvertido = matrizDatos.map(fila => fila.join('\t')).join('\n');
-        
         procesarImagenYEnviar(textoConvertido, archivoEvidencia, responsable, recibe);
       };
       readerExcel.readAsArrayBuffer(archivoSubido);
     } else {
-      // Si usaron la opción de pegar
       procesarImagenYEnviar(textoPaste, archivoEvidencia, responsable, recibe);
     }
   }
@@ -196,6 +190,18 @@
     });
   }
 
+  // FUNCIÓN PARA CONVERTIR URL DE GOOGLE DRIVE EN ENLACE DE DESCARGA DIRECTA
+  function obtenerUrlDescargaDirecta(url) {
+    // Busca el ID del archivo en la URL de Drive (lo que está entre /d/ y /view)
+    var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (match && match[1]) {
+      var fileId = match[1];
+      // Crea el formato de descarga directa de Google
+      return "https://drive.google.com/uc?export=download&id=" + fileId;
+    }
+    return url; // Si falla, devuelve la original
+  }
+
   function mostrarResultados(resultados) {
     ultimosResultados = resultados || []; 
     var tbody = document.getElementById("cuerpoTablaResultados");
@@ -213,8 +219,15 @@
       var tr = document.createElement("tr");
       for (var j = 0; j < 12; j++) {
         var td = document.createElement("td");
+        
         if (j === 10) { 
-          td.innerHTML = fila[j] && fila[j].toString().startsWith("http") ? `<a href="${fila[j]}" target="_blank" class="btn btn-sm" style="border: 1px solid var(--acento-azul); color: var(--acento-azul);">Ver</a>` : "-";
+          // COLUMNA DE EVIDENCIA: AHORA DESCARGA DIRECTO
+          if (fila[j] && fila[j].toString().startsWith("http")) {
+            var urlDescarga = obtenerUrlDescargaDirecta(fila[j].toString());
+            td.innerHTML = `<a href="${urlDescarga}" class="btn btn-sm" style="background-color: var(--acento-azul); color: #000; font-weight: 600; text-decoration: none;">⬇️ Descargar</a>`;
+          } else {
+            td.textContent = "-";
+          }
         } else if (j === 11) { 
           var estado = fila[j] ? fila[j].toString().trim().toUpperCase() : "";
           td.innerHTML = estado === "SI" ? `<span class="badge bg-success">SI</span>` : (estado === "NO" ? `<span class="badge bg-danger">NO</span>` : estado);
@@ -227,39 +240,24 @@
     });
   }
 
-  // --- NUEVA LÓGICA DE EXCEL NATIVO CON SHEETJS ---
-
   function descargarPlantillaXLSX() {
-    // 1. Crear el arreglo de datos (solo los encabezados)
-    var datosPlantilla = [
-      ["Tienda", "Código Tienda", "Núm. Albarán", "SKU", "EAN", "Nombre del Producto", "Cantidad"]
-    ];
-    // 2. Convertirlo a una hoja
+    var datosPlantilla = [ ["Tienda", "Código Tienda", "Núm. Albarán", "SKU", "EAN", "Nombre del Producto", "Cantidad"] ];
     var hoja = XLSX.utils.aoa_to_sheet(datosPlantilla);
-    // 3. Crear el libro y agregar la hoja
     var libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, "Plantilla_Sobrantes");
-    // 4. Descargar el archivo
     XLSX.writeFile(libro, "Plantilla_Captura_Productos.xlsx");
   }
 
   function descargarConsultaXLSX() {
     if (ultimosResultados.length === 0) return;
+    var datosExcel = [ ["Fecha y Hora", "Responsable CH", "Recibe", "Tienda", "Código Tienda", "Núm. Albarán", "SKU", "EAN", "Nombre del Producto", "Cantidad", "Evidencia", "Cargado"] ];
     
-    // Encabezados de los resultados
-    var datosExcel = [
-      ["Fecha y Hora", "Responsable CH", "Recibe", "Tienda", "Código Tienda", "Núm. Albarán", "SKU", "EAN", "Nombre del Producto", "Cantidad", "Evidencia", "Cargado"]
-    ];
-    
-    // Añadimos las filas de los resultados
     for (var i = 0; i < ultimosResultados.length; i++) {
       datosExcel.push(ultimosResultados[i]);
     }
-    
     var hoja = XLSX.utils.aoa_to_sheet(datosExcel);
     var libro = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(libro, hoja, "Resultados");
-    
     var fechaArchivo = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(libro, "Consulta_Sobrantes_" + fechaArchivo + ".xlsx");
   }
