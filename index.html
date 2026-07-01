@@ -83,10 +83,27 @@
   <div id="status" class="mt-4"></div>
 </div>
 
+<div class="modal fade" id="modalEvidencia" tabindex="-1" aria-labelledby="modalEvidenciaLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content" style="background-color: var(--bg-tarjeta); border: 1px solid var(--bordes);">
+      <div class="modal-header" style="border-bottom: 1px solid var(--bordes);">
+        <h5 class="modal-title text-light" id="modalEvidenciaLabel">📸 Evidencia de Entrega</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body text-center p-4">
+        <img id="imagenModal" src="" alt="Cargando evidencia..." style="max-width: 100%; max-height: 70vh; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+      </div>
+      <div class="modal-footer" style="border-top: 1px solid var(--bordes);">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
   // --------------------------------------------------------
-  // ¡PEGAR AQUÍ LA URL DE TU NUEVA APLICACIÓN WEB DE GOOGLE!
+  // ¡PEGAR AQUÍ LA URL DE TU APLICACIÓN WEB DE GOOGLE!
   const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw4g0x3uA2YJ0frjPL2JbXH32I90vgcE6JWlZEyoLHibnnb36UZ-j1VEHXoTK9fZZgf/exec"; 
   // --------------------------------------------------------
 
@@ -184,7 +201,6 @@
     });
   }
 
-  // --- LÓGICA DEL TÚNEL PARA DESCARGAR LA FOTO ---
   function extraerIdDrive(url) {
     var match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
     if(match && match[1]) return match[1];
@@ -193,9 +209,10 @@
     return null;
   }
 
-  function descargarImagenInterna(fileId, btnRef) {
+  // --- NUEVA LÓGICA: VER IMAGEN EN MODAL ---
+  function verImagenInterna(fileId, btnRef) {
     var textoOriginal = btnRef.innerHTML;
-    btnRef.innerHTML = "⏳ Cargando...";
+    btnRef.innerHTML = "⏳...";
     btnRef.disabled = true;
 
     var payload = { accion: "descargar_imagen", fileId: fileId };
@@ -211,21 +228,21 @@
       btnRef.disabled = false;
       
       if (data.status === "exito") {
-        var enlace = document.createElement("a");
-        // Convertimos el código seguro a una imagen descargable real
-        enlace.href = "data:" + data.mimeType + ";base64," + data.base64;
-        enlace.download = data.nombre;
-        document.body.appendChild(enlace);
-        enlace.click();
-        document.body.removeChild(enlace);
+        // 1. Asignamos la imagen codificada a la etiqueta <img> del Modal
+        var fuenteImagen = "data:" + data.mimeType + ";base64," + data.base64;
+        document.getElementById("imagenModal").src = fuenteImagen;
+        
+        // 2. Usamos Bootstrap para mostrar la ventana emergente
+        var myModal = new bootstrap.Modal(document.getElementById('modalEvidencia'));
+        myModal.show();
       } else {
-        mostrarAlerta("Error al descargar la imagen.", true);
+        mostrarAlerta("Error al cargar la imagen.", true);
       }
     })
     .catch(error => {
       btnRef.innerHTML = textoOriginal;
       btnRef.disabled = false;
-      mostrarAlerta("Fallo en la red al descargar.", true);
+      mostrarAlerta("Fallo en la red al cargar la imagen.", true);
     });
   }
 
@@ -248,11 +265,11 @@
         var td = document.createElement("td");
         
         if (j === 10) { 
-          // EL BOTÓN DE DESCARGA INVOCA EL TÚNEL
+          // EL BOTÓN AHORA DICE "VER" Y ABRE EL MODAL
           if (fila[j] && fila[j].toString().startsWith("http")) {
             var fileId = extraerIdDrive(fila[j].toString());
             if(fileId) {
-              td.innerHTML = `<button onclick="descargarImagenInterna('${fileId}', this)" class="btn btn-sm" style="background-color: var(--acento-azul); color: #000; font-weight: 600; border: none;">⬇️ Descargar</button>`;
+              td.innerHTML = `<button onclick="verImagenInterna('${fileId}', this)" class="btn btn-sm" style="background-color: var(--acento-azul); color: #000; font-weight: 600; border: none;">👁️ Ver</button>`;
             } else {
               td.textContent = "-";
             }
